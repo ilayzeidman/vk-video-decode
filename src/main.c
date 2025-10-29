@@ -19,6 +19,14 @@
 		}                                                                               \
 	} while (0)
 
+// Forward declarations
+static VkInstance create_vulkan_instance(void);
+static VkPhysicalDevice select_video_capable_device(VkInstance instance, uint32_t *videoQueueFamily);
+static VkDevice create_logical_device(VkPhysicalDevice physicalDevice, uint32_t videoQueueFamily);
+static void query_video_capabilities(VkInstance instance, VkPhysicalDevice physicalDevice);
+static void cleanup_vulkan(VkInstance instance, VkDevice device);
+
+// Helper functions
 static int has_extension(uint32_t count, const VkExtensionProperties *exts, const char *name)
 {
 	for (uint32_t i = 0; i < count; ++i)
@@ -41,8 +49,28 @@ static int has_layer(uint32_t count, const VkLayerProperties *layers, const char
 
 int main(void)
 {
-	// ---- 1) Create instance (no WSI needed for headless decode)
+	// Create Vulkan instance
+	VkInstance instance = create_vulkan_instance();
 
+	// Select a GPU with video decode capabilities
+	uint32_t videoQueueFamily;
+	VkPhysicalDevice physicalDevice = select_video_capable_device(instance, &videoQueueFamily);
+
+	// Create logical device
+	VkDevice device = create_logical_device(physicalDevice, videoQueueFamily);
+
+	// Query and display video capabilities
+	query_video_capabilities(instance, physicalDevice);
+
+	// Clean up
+	cleanup_vulkan(instance, device);
+
+	fprintf(stdout, "Success: basic Vulkan Video H.264 decode path is available.\n");
+	return EXIT_SUCCESS;
+}
+
+static VkInstance create_vulkan_instance(void)
+{
 	VkApplicationInfo app = {
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.pApplicationName = "vkvideo_min_c",
@@ -81,13 +109,18 @@ int main(void)
 	VkInstance instance = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateInstance(&ici, NULL, &instance));
 
-	// ---- 2) Enumerate physical devices and pick one with video decode H.264
+	return instance;
+}
+
+static VkPhysicalDevice select_video_capable_device(VkInstance instance, uint32_t *videoQueueFamily)
+{
+	// Enumerate physical devices
 	uint32_t gpuCount = 0;
 	VK_CHECK(vkEnumeratePhysicalDevices(instance, &gpuCount, NULL));
 	if (gpuCount == 0)
 	{
 		fprintf(stderr, "No Vulkan devices found.\n");
-		return EXIT_FAILURE;
+		exit(EXIT_FAILURE);
 	}
 	VkPhysicalDevice *gpus = (VkPhysicalDevice *)malloc(sizeof(VkPhysicalDevice) * gpuCount);
 	VK_CHECK(vkEnumeratePhysicalDevices(instance, &gpuCount, gpus));
@@ -175,7 +208,7 @@ int main(void)
 	if (chosen == VK_NULL_HANDLE)
 	{
 		fprintf(stderr, "No device found with H.264 decode support via Vulkan Video.\n");
-		return EXIT_FAILURE;
+		exit(EXIT_FAILURE);
 	}
 
 	VkPhysicalDeviceProperties props;
@@ -183,10 +216,21 @@ int main(void)
 	fprintf(stdout, "Chosen GPU: %s\n", props.deviceName);
 	fprintf(stdout, "Video decode queue family index: %u\n", chosenVideoQF);
 
-	// ---- 3) Create logical device with required extensions and one video queue
+	*videoQueueFamily = chosenVideoQF;
+	return chosen;
+}
+
+static VkDevice create_logical_device(VkPhysicalDevice physicalDevice, uint32_t videoQueueFamily)
+{
+	const char *REQ_DEV_EXTS[] = {
+		VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,		  // "VK_KHR_video_queue"
+		VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME, // "VK_KHR_video_decode_queue"
+		VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME	  // "VK_KHR_video_decode_h264"
+	};
+
 	float prio = 1.0f;
 	VkDeviceQueueCreateInfo qci = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-	qci.queueFamilyIndex = chosenVideoQF;
+	qci.queueFamilyIndex = videoQueueFamily;
 	qci.queueCount = 1;
 	qci.pQueuePriorities = &prio;
 
@@ -197,12 +241,13 @@ int main(void)
 	dci.ppEnabledExtensionNames = REQ_DEV_EXTS;
 
 	VkDevice device = VK_NULL_HANDLE;
-	VK_CHECK(vkCreateDevice(chosen, &dci, NULL, &device));
+	VK_CHECK(vkCreateDevice(physicalDevice, &dci, NULL, &device));
 
-	VkQueue vq = VK_NULL_HANDLE;
-	vkGetDeviceQueue(device, chosenVideoQF, 0, &vq);
+	return device;
+}
 
-	// ---- 4) (Bonus) Query H.264 video capabilities to prove path is callable
+static void query_video_capabilities(VkInstance instance, VkPhysicalDevice physicalDevice)
+{
 	PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR pfnGetVideoCaps =
 		(PFN_vkGetPhysicalDeviceVideoCapabilitiesKHR)
 			vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceVideoCapabilitiesKHR");
@@ -210,46 +255,44 @@ int main(void)
 	if (!pfnGetVideoCaps)
 	{
 		fprintf(stderr, "Warning: vkGetPhysicalDeviceVideoCapabilitiesKHR not found (loader). Skipping caps query.\n");
+		return;
+	}
+
+	VkVideoDecodeH264ProfileInfoKHR h264Profile = {
+		.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR,
+		.pNext = NULL,
+		.stdProfileIdc = STD_VIDEO_H264_PROFILE_IDC_MAIN, // try Main as a common baseline
+		.pictureLayout = VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR};
+
+	VkVideoProfileInfoKHR videoProfile = {
+		.sType = VK_STRUCTURE_TYPE_VIDEO_PROFILE_INFO_KHR,
+		.pNext = &h264Profile,
+		.videoCodecOperation = VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR,
+		.chromaSubsampling = VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR,
+		.lumaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR,
+		.chromaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR};
+
+	VkVideoDecodeH264CapabilitiesKHR h264Caps = {
+		.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR};
+	VkVideoCapabilitiesKHR caps = {
+		.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR,
+		.pNext = &h264Caps};
+
+	VkResult rc = pfnGetVideoCaps(physicalDevice, &videoProfile, &caps);
+	if (rc == VK_SUCCESS)
+	{
+		fprintf(stdout, "Video caps OK. Max coded extent: %ux%u, Max DPB slots: %u\n",
+				caps.maxCodedExtent.width, caps.maxCodedExtent.height, caps.maxDpbSlots);
 	}
 	else
 	{
-		VkVideoDecodeH264ProfileInfoKHR h264Profile = {
-			.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PROFILE_INFO_KHR,
-			.pNext = NULL,
-			.stdProfileIdc = STD_VIDEO_H264_PROFILE_IDC_MAIN, // try Main as a common baseline
-			.pictureLayout = VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR};
-
-		VkVideoProfileInfoKHR videoProfile = {
-			.sType = VK_STRUCTURE_TYPE_VIDEO_PROFILE_INFO_KHR,
-			.pNext = &h264Profile,
-			.videoCodecOperation = VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR,
-			.chromaSubsampling = VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR,
-			.lumaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR,
-			.chromaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR};
-
-		VkVideoDecodeH264CapabilitiesKHR h264Caps = {
-			.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR};
-		VkVideoCapabilitiesKHR caps = {
-			.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR,
-			.pNext = &h264Caps};
-
-		VkResult rc = pfnGetVideoCaps(chosen, &videoProfile, &caps);
-		if (rc == VK_SUCCESS)
-		{
-			fprintf(stdout, "Video caps OK. Max coded extent: %ux%u, Max DPB slots: %u\n",
-					caps.maxCodedExtent.width, caps.maxCodedExtent.height, caps.maxDpbSlots);
-		}
-		else
-		{
-			fprintf(stderr, "vkGetPhysicalDeviceVideoCapabilitiesKHR failed: %d\n", rc);
-		}
+		fprintf(stderr, "vkGetPhysicalDeviceVideoCapabilitiesKHR failed: %d\n", rc);
 	}
+}
 
-	// ---- 5) Clean up (for now). Next step: create VideoSession/Parameters, buffers, images.
+static void cleanup_vulkan(VkInstance instance, VkDevice device)
+{
 	vkDeviceWaitIdle(device);
 	vkDestroyDevice(device, NULL);
 	vkDestroyInstance(instance, NULL);
-
-	fprintf(stdout, "Success: basic Vulkan Video H.264 decode path is available.\n");
-	return EXIT_SUCCESS;
 }
