@@ -69,6 +69,30 @@ int main(void)
 	return EXIT_SUCCESS;
 }
 
+static void add_validation_layer_if_available(VkInstanceCreateInfo *ici)
+{
+	uint32_t layerCount = 0;
+	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+	VkLayerProperties *layers = layerCount ? (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * layerCount) : NULL;
+	if (layers)
+		vkEnumerateInstanceLayerProperties(&layerCount, layers);
+
+	static const char *enabledLayers[1] = {"VK_LAYER_KHRONOS_validation"};
+	if (layers && has_layer(layerCount, layers, "VK_LAYER_KHRONOS_validation"))
+	{
+		ici->enabledLayerCount = 1;
+		ici->ppEnabledLayerNames = enabledLayers;
+		fprintf(stdout, "Info: enabling validation layer\n");
+	}
+	else
+	{
+		ici->enabledLayerCount = 0;
+		ici->ppEnabledLayerNames = NULL;
+	}
+	if (layers)
+		free(layers);
+}
+
 static VkInstance create_vulkan_instance(void)
 {
 	VkApplicationInfo app = {
@@ -79,32 +103,14 @@ static VkInstance create_vulkan_instance(void)
 		.engineVersion = VK_MAKE_API_VERSION(0, 1, 0, 0),
 		.apiVersion = VK_API_VERSION_1_3};
 
-	VkInstanceCreateInfo ici = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-	ici.pApplicationInfo = &app;
-	ici.enabledExtensionCount = 0; // No extensions needed for headless decode
-	ici.ppEnabledExtensionNames = NULL;
+	VkInstanceCreateInfo ici = {
+		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+		.pApplicationInfo = &app,
+		.enabledExtensionCount = 0,
+		.ppEnabledExtensionNames = NULL};
 
-	// (Optional) validation layer if present
-	uint32_t layerCount = 0;
-	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
-	VkLayerProperties *layers = layerCount ? (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * layerCount) : NULL;
-	if (layers)
-		vkEnumerateInstanceLayerProperties(&layerCount, layers);
-
-	const char *enabledLayers[1] = {"VK_LAYER_KHRONOS_validation"};
-	if (layers && has_layer(layerCount, layers, "VK_LAYER_KHRONOS_validation"))
-	{
-		ici.enabledLayerCount = 1;
-		ici.ppEnabledLayerNames = enabledLayers;
-		fprintf(stdout, "Info: enabling validation layer\n");
-	}
-	else
-	{
-		ici.enabledLayerCount = 0;
-		ici.ppEnabledLayerNames = NULL;
-	}
-	if (layers)
-		free(layers);
+	// Add validation layer if available
+	add_validation_layer_if_available(&ici);
 
 	VkInstance instance = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateInstance(&ici, NULL, &instance));
@@ -273,10 +279,16 @@ static void query_video_capabilities(VkInstance instance, VkPhysicalDevice physi
 		.chromaBitDepth = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR};
 
 	VkVideoDecodeH264CapabilitiesKHR h264Caps = {
-		.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR};
+		.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR,
+		.pNext = NULL};
+
+	VkVideoDecodeCapabilitiesKHR decodeCaps = {
+		.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR,
+		.pNext = &h264Caps};
+
 	VkVideoCapabilitiesKHR caps = {
 		.sType = VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR,
-		.pNext = &h264Caps};
+		.pNext = &decodeCaps};
 
 	VkResult rc = pfnGetVideoCaps(physicalDevice, &videoProfile, &caps);
 	if (rc == VK_SUCCESS)

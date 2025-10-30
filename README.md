@@ -4,17 +4,15 @@
 ```bash
 # Configure the build with CMake
 cmake -S . -B build
-
 # Build the project in Release mode
 cmake --build build --config Release
 
-# Run the executable
-build\Release\vkvideo_min.exe
-```
+# Build the project in Debug mode
+cmake --build build --config Debug
 
-main()
-├── create_vulkan_instance()
-├── select_video_capable_device()
-├── create_logical_device()
-├── query_video_capabilities()
-└── cleanup_vulkan()
+# Run the executable (Release)
+build\Release\vk_video_decode.exe
+
+# Run the executable (Debug)
+build\Debug\vk_video_decode.exe
+```
