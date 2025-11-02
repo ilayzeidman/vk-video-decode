@@ -37,16 +37,6 @@ static int has_extension(uint32_t count, const VkExtensionProperties *exts, cons
 	return 0;
 }
 
-static int has_layer(uint32_t count, const VkLayerProperties *layers, const char *name)
-{
-	for (uint32_t i = 0; i < count; ++i)
-	{
-		if (strcmp(layers[i].layerName, name) == 0)
-			return 1;
-	}
-	return 0;
-}
-
 int main(void)
 {
 	// Create Vulkan instance
