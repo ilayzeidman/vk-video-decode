@@ -1,25 +1,40 @@
 {
     "configurations": [
-    {
-        "name": "vk-video-decode Debug",
-        "type": "cppdbg",
-        "request": "launch",
-        "program": "${workspaceFolder}\\build\\Debug\\vk_video_decode.exe",
-        "MIMode": "gdb",
-        "cwd": "${workspaceFolder}",
-        "preLaunchTask": "CMake Build Debug",
-        "setupCommands": [
-            {
-                "description": "Enable pretty-printing for gdb",
-                "text": "-enable-pretty-printing",
-                "ignoreFailures": true
-            },
-            {
-                "description": "Set Disassembly Flavor to Intel",
-                "text": "-gdb-set disassembly-flavor intel",
-                "ignoreFailures": true
-            }
-        ]
-    }
+        {
+            "name": "vk-video-decode Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}\\build\\Debug\\vk_video_decode.exe",
+            "MIMode": "gdb",
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "CMake Build Debug",
+            "environment": [
+                {
+                    "name": "VK_LOADER_DEBUG",
+                    "value": "all"
+                },
+                {
+                    "name": "VK_INSTANCE_LAYERS",
+                    "value": "VK_LAYER_KHRONOS_validation" 
+                },
+                // {
+                //     "name": "VK_INSTANCE_LAYERS",
+                //     "value": "VK_LAYER_KHRONOS_validation;VK_LAYER_LUNARG_api_dump" //; for windows
+                // }
+
+            ],
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        }
     ]
 }

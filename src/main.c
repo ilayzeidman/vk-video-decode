@@ -37,16 +37,6 @@ static int has_extension(uint32_t count, const VkExtensionProperties *exts, cons
 	return 0;
 }
 
-static int has_layer(uint32_t count, const VkLayerProperties *layers, const char *name)
-{
-	for (uint32_t i = 0; i < count; ++i)
-	{
-		if (strcmp(layers[i].layerName, name) == 0)
-			return 1;
-	}
-	return 0;
-}
-
 int main(void)
 {
 	// Create Vulkan instance
@@ -69,30 +59,6 @@ int main(void)
 	return EXIT_SUCCESS;
 }
 
-static void add_validation_layer_if_available(VkInstanceCreateInfo *ici)
-{
-	uint32_t layerCount = 0;
-	vkEnumerateInstanceLayerProperties(&layerCount, NULL);
-	VkLayerProperties *layers = layerCount ? (VkLayerProperties *)malloc(sizeof(VkLayerProperties) * layerCount) : NULL;
-	if (layers)
-		vkEnumerateInstanceLayerProperties(&layerCount, layers);
-
-	static const char *enabledLayers[1] = {"VK_LAYER_KHRONOS_validation"};
-	if (layers && has_layer(layerCount, layers, "VK_LAYER_KHRONOS_validation"))
-	{
-		ici->enabledLayerCount = 1;
-		ici->ppEnabledLayerNames = enabledLayers;
-		fprintf(stdout, "Info: enabling validation layer\n");
-	}
-	else
-	{
-		ici->enabledLayerCount = 0;
-		ici->ppEnabledLayerNames = NULL;
-	}
-	if (layers)
-		free(layers);
-}
-
 static VkInstance create_vulkan_instance(void)
 {
 	VkApplicationInfo app = {
@@ -108,9 +74,6 @@ static VkInstance create_vulkan_instance(void)
 		.pApplicationInfo = &app,
 		.enabledExtensionCount = 0,
 		.ppEnabledExtensionNames = NULL};
-
-	// Add validation layer if available
-	add_validation_layer_if_available(&ici);
 
 	VkInstance instance = VK_NULL_HANDLE;
 	VK_CHECK(vkCreateInstance(&ici, NULL, &instance));
